@@ -4,67 +4,64 @@ import logging
 import requests
 import sys
 import getopt
-from credentials import SLACK_BOT_TOKEN,\
-    JIRA_AUTHORIZATION,\
-    JIRA_API_URL,\
-    SLACK_CHANNEL_ID,\
-    SLACK_TEST_CHANNEL_ID,\
-    SLACK_BOT_NAME
+from credentials import JIRA_AUTHORIZATION,\
+    JIRA_API_URL
 
-class TimetrackingController():
-    def getAverageFromTickets(self, data):
+class TimetrackingController:
+    def __init__(self, params):
+        self.data_width = params['data_width']
+
+    def getAverageFromTickets(self, tickets):
+        """
+        Given array of ticket, checks if one have proper estimation
+        and tracking data and compute average error of estimation(abs)
+        """
         accuracies = []
 
-        for issue in data['issues']:
-            timetracking = issue['fields']['timetracking']
+        for ticket in tickets:
+            timetracking = ticket['fields']['timetracking']
             timespent = 0
             estimated = 0
 
             if 'timeSpentSeconds' in timetracking.keys():
                 timespent = timetracking['timeSpentSeconds']
-                #print timespent
 
             if 'originalEstimateSeconds' in timetracking.keys():
                 estimated = timetracking['originalEstimateSeconds']
-                #print estimated
             
             if (timespent and estimated):
                 accuracy = timespent * 100 / estimated
-                # print "accuracy: "
-                # print accuracy
                 accuracies.append(abs(100 - accuracy))
 
-        self.computeAverageFromVariations(accuracies)
+        return self.computeAverageFromVariations(accuracies)
 
     def computeAverageFromVariations(self, variations):
-        variations.sort(reverse=True)
+        variations.sort(reverse = True)
 
         # floor round number of elements that count into average
-        probe = int(len(variations) * 0.75)
+        probe = int(len(variations) * self.data_width / 100)
         sum = 0
+
+        if (probe < 1):
+            return 0
 
         for acc in variations[:probe]:
             print acc
-            sum+=acc
+            sum += acc
 
-        print "result: "
-        print sum/probe
+        averageAccuracy = sum / probe
+
+        return averageAccuracy
 
 
 class JiraController():
-    def __init__(self):
-        logging.basicConfig(level = logging.INFO)
-
-    def get_tickets(self):
+    def get_tickets(self, params):
         """
-        Gets the finished tickets statistics
+        Gets the finished tickets data
         """
-        response = []
-        params = self.get_params()
+        jira_response = self.make_jira_request(params)
 
-        finished_tickets = self.make_jira_request(params)
-
-        return finished_tickets
+        return jira_response['issues']
 
     def make_jira_request(self, params):
         headers = {
@@ -72,7 +69,11 @@ class JiraController():
             'Authorization': JIRA_AUTHORIZATION
         }
 
-        jql = 'assignee was diana.falkowska AND status in (Closed, Solved, Done) AND project = "West Wing" AND updated >= 2016-05-01 AND updated <= 2016-06-30'
+        jql = ('assignee was ' + params['user'] + ' AND '
+            'status in (Closed, Solved, Done) AND '
+            'project = "' + params['project_name'] + '" AND '
+            'updated >= 2016-04-01 AND '
+            'updated <= 2016-06-30')
 
         response = requests.get(
                 JIRA_API_URL,
@@ -87,21 +88,37 @@ class JiraController():
 
     def get_params(self):
         project_name = 'West Wing'
+        user = 'diana.falkowska'
+        data_width = 75
         params = {
             'project_name': project_name,
+            'user': user,
+            'data_width': data_width
         }
 
-        optlist, args = getopt.getopt(sys.argv[1:], "p:d:", ["project=", "test"])
+        optlist, args = getopt.getopt(sys.argv[1:], "p:u:w:", ["project=", "user=", "width="])
 
         for option, arg in optlist:
             if option in ("-p", "--project"):
                 params['project_name'] = arg
 
+            if option in ("-u", "--user"):
+                user = arg
+                params['user'] = arg
+
+            if option in ("-w", "--width"):
+                user = arg
+                params['data_width'] = int(arg)
+
         return params
 
 if __name__ == "__main__":
     jiraConnector = JiraController()
-    tracker = TimetrackingController()
+    params = jiraConnector.get_params()
+    tickets = jiraConnector.get_tickets(params)
 
-    tickets = jiraConnector.get_tickets()
-    tracker.getAverageFromTickets(tickets)
+    tracker = TimetrackingController(params)
+    averageAccuracy = tracker.getAverageFromTickets(tickets)
+
+    print ("{} is accurate +/- {:.2f}% in {}% of cases.". format(params['user'], 100 - averageAccuracy, params['data_width']))
+    print ("That is, in {}% of cases {}'s estimation is good in {:.2f}%.". format(params['data_width'], params['user'], averageAccuracy))

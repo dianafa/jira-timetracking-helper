@@ -4,6 +4,8 @@ import logging
 import requests
 import sys
 import getopt
+import iso8601
+from datetime import timedelta
 from credentials import JIRA_AUTHORIZATION,\
     JIRA_API_URL
 
@@ -53,6 +55,44 @@ class TimetrackingController:
 
         return averageAccuracy
 
+class TimeInStatusController():
+    def process(self, tickets):
+        all_tickets_time = timedelta(0)
+        all_tickets_count = len(tickets)
+
+        if (all_tickets_count == 0):
+            print "No tickets found!"
+            return 0
+
+        for ticket in tickets:
+            all_tickets_time = all_tickets_time + self.getTicketInProgressTime(ticket)
+
+        result = all_tickets_time.total_seconds() / all_tickets_count
+        return result
+
+    def getTicketInProgressTime(self, ticket):
+        start = None
+        end = None
+        sum = timedelta(0)
+
+        for history in ticket['changelog']['histories']:
+                for transition in history['items']:
+                    if (transition['field'] == 'status'):
+                        if (transition['toString'] == "In Progress"):
+                            start =  history['created']
+                        if (transition['fromString'] == "In Progress"):
+                            end = history['created']
+                        
+                    if (start and end and start < end):
+                        start_date = iso8601.parse_date(start)
+                        end_date = iso8601.parse_date(end)
+                        sum += end_date - start_date
+                        #print ("Computing difference between start date and end date for ticket {}: {}". format(ticket['key'], end_date - start_date))
+                        start = None
+                        end = None
+
+        #print ("Total 'In Progress' time for ticket {}: {}". format(ticket['key'], sum))
+        return sum
 
 class JiraController():
     def get_tickets(self, params):
@@ -79,7 +119,8 @@ class JiraController():
                 JIRA_API_URL,
                 params = {
                     'jql': jql,
-                    'fields': 'timetracking,timespent,summary,self'
+                    'fields': 'timetracking,timespent,summary,self',
+                    'expand': 'changelog'
                 },
                 headers = headers
             ).json()
@@ -122,3 +163,11 @@ if __name__ == "__main__":
 
     print ("{} is accurate +/- {:.2f}% in {}% of cases.". format(params['user'], 100 - averageAccuracy, params['data_width']))
     print ("That is, in {}% of cases {}'s estimation is good in {:.2f}%.". format(params['data_width'], params['user'], averageAccuracy))
+
+    historyTracker = TimeInStatusController()
+    averageInProgressTime = historyTracker.process(tickets)
+
+    print ("\nAverage 'In Progress' time for user {} is:". format(params['user']))
+    print ("[hours]:\t{:.2f}". format(averageInProgressTime/3600))
+    print ("[workdays]:\t{:.2f}". format(averageInProgressTime/3600/8))
+    print ("[days]:\t\t{:.2f}". format(averageInProgressTime/3600/24))

@@ -128,7 +128,7 @@ class JiraController():
         return response
 
     def get_params(self):
-        project_name = 'West Wing'
+        project_name = 'The Old West Wing'
         user = 'diana.falkowska'
         data_width = 75
         params = {
@@ -161,7 +161,7 @@ if __name__ == "__main__":
     tracker = TimetrackingController(params)
     averageAccuracy = tracker.getAverageFromTickets(tickets)
 
-    print ("{} is accurate +/- {:.2f}% in {}% of cases.". format(params['user'], 100 - averageAccuracy, params['data_width']))
+    print ("\n{} is accurate +/- {:.2f}% in {}% of cases.". format(params['user'], 100 - averageAccuracy, params['data_width']))
     print ("That is, in {}% of cases {}'s estimation is good in {:.2f}%.". format(params['data_width'], params['user'], averageAccuracy))
 
     historyTracker = TimeInStatusController()
